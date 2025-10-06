@@ -12,8 +12,7 @@ local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
 -- Robust Orion loader (tries multiple http/loadstring implementations)
-local ORION_URL = "https://raw.githubusercontent.com/shlexware/Orion/main/source"
-local function detect_http_get()
+local OrionLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Orion/main/source"))()
     if pcall(function() return game.HttpGet end) and type(game.HttpGet)=="function" then
         return function(url) return game:HttpGet(url,true) end
     end
