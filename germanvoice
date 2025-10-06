@@ -1,39 +1,36 @@
--- ========== Orion Loader ==========
+-- ========== Orion Library Loader ==========
 local ORION_URL = "https://raw.githubusercontent.com/shlexware/Orion/main/source"
 
-local function getHttpGet()
-    if pcall(function() return game.HttpGet end) then
-        return function(url) return game:HttpGet(url, true) end
+local function detect_http_get()
+    if pcall(function() return game.HttpGet end) and type(game.HttpGet)=="function" then
+        return function(url) return game:HttpGet(url,true) end
     end
-    if syn and syn.request then
-        return function(url)
-            local ok, res = pcall(function()
-                return syn.request({Url = url, Method = "GET"})
-            end)
-            if ok and res then return res.Body end
-        end
+    if type(syn)=="table" and type(syn.request)=="function" then
+        return function(url) local ok,r=pcall(function() return syn.request({Url=url,Method="GET"}) end) if ok and r then return r.Body end end
+    end
+    local http = http
+    if type(http)=="table" and type(http.request)=="function" then
+        return function(url) local ok,r=pcall(function() return http.request({Url=url,Method="GET"}) end) if ok and r then return r.Body end end
     end
     local HttpService = game:GetService("HttpService")
-    if HttpService and HttpService.GetAsync then
-        return function(url)
-            local ok, res = pcall(function() return HttpService:GetAsync(url) end)
-            if ok then return res end
-        end
+    if HttpService and type(HttpService.GetAsync)=="function" then
+        return function(url) local ok,res=pcall(function() return HttpService:GetAsync(url) end) if ok then return res end end
     end
+    return nil
 end
 
-local http_get = getHttpGet()
-local loader = loadstring or (syn and syn.loadstring) or (KRNL and KRNL.loadstring)
+local http_get = detect_http_get()
+local loader = loadstring or (syn and syn.loadstring) or (KRNL and KRNL.loadstring) or (Fluxus and Fluxus.loadstring)
 local OrionLib = nil
 
 if loader and http_get then
     pcall(function()
         local src = http_get(ORION_URL)
-        if type(src) == "string" and #src > 50 then
+        if type(src)=="string" and #src > 50 then
             local chunk = loader(src)
-            if type(chunk) == "function" then
+            if type(chunk)=="function" then
                 local ok, lib = pcall(chunk)
-                if ok and type(lib) == "table" then
+                if ok and type(lib)=="table" then
                     OrionLib = lib
                 end
             end
@@ -41,110 +38,98 @@ if loader and http_get then
     end)
 end
 
-if not OrionLib then return end
+if not OrionLib then
+    return warn("Failed to load Orion library.")
+end
 
--- ========== Services ==========
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
+-- ========== Create UI ==========
+local Window = OrionLib:MakeWindow({Name = "Universal Player Teleporter", HidePremium = false, SaveConfig = true, ConfigFolder = "UniversalTP"})
 
--- ========== GUI ==========
-local Window = OrionLib:MakeWindow({
-    Name = "Player Utilities",
-    HidePremium = false,
-    SaveConfig = true,
-    ConfigFolder = "PlayerUtilities"
-})
+-- Tabs
+local MainTab = Window:MakeTab({Name = "Main", Icon = "rbxassetid://4483345998", PremiumOnly = false})
+local PlayerTab = Window:MakeTab({Name = "Players", Icon = "rbxassetid://6023426915", PremiumOnly = false})
+local SettingsTab = Window:MakeTab({Name = "Settings", Icon = "rbxassetid://4483345998", PremiumOnly = false})
 
-local PlayerTab = Window:MakeTab({
-    Name = "Players",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
-
--- ========== Helper Functions ==========
-local function getPlayerRoot(player)
-    if player and player.Character then
-        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-        if hrp then return hrp end
+-- ========== Utility Functions ==========
+local function getPlayerByName(name)
+    for _, plr in pairs(game:GetService("Players"):GetPlayers()) do
+        if plr.Name:lower():match(name:lower()) then
+            return plr
+        end
     end
     return nil
 end
 
-local function freezePlayer(player)
-    if not player.Character then return end
-    for _, part in ipairs(player.Character:GetChildren()) do
-        if part:IsA("BasePart") then
-            part.Anchored = true
-        end
+local function teleportToPlayer(target)
+    local character = game.Players.LocalPlayer.Character
+    if character and target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+        character:MoveTo(target.Character.HumanoidRootPart.Position + Vector3.new(0,3,0))
     end
 end
 
-local function ragdollPlayer(player)
-    if not player.Character then return end
-    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        humanoid.PlatformStand = true
-        for _, part in ipairs(player.Character:GetChildren()) do
-            if part:IsA("BasePart") then
-                part.Anchored = false
-            end
-        end
-    end
-end
-
-local function bringPlayer(player)
-    local hrp = getPlayerRoot(player)
-    local myHrp = getPlayerRoot(LocalPlayer)
-    if hrp and myHrp then
-        hrp.CFrame = myHrp.CFrame + Vector3.new(0, 5, 0)
-    end
-end
-
--- ========== GUI Buttons ==========
-local function showPlayerActions(player)
-    PlayerTab:Clear()
-    PlayerTab:AddLabel({Name = "Selected: "..player.Name})
-
-    PlayerTab:AddButton({
-        Name = "Freeze "..player.Name,
-        Callback = function() freezePlayer(player) end
-    })
-
-    PlayerTab:AddButton({
-        Name = "Ragdoll "..player.Name,
-        Callback = function() ragdollPlayer(player) end
-    })
-
-    PlayerTab:AddButton({
-        Name = "Bring to Me "..player.Name,
-        Callback = function() bringPlayer(player) end
-    })
-
-    PlayerTab:AddButton({
-        Name = "Back to Player List",
-        Callback = function() updatePlayerList() end
-    })
-end
-
--- ========== Player List ==========
-function updatePlayerList()
-    PlayerTab:Clear()
-    PlayerTab:AddLabel({Name = "Players in Server:"})
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            PlayerTab:AddButton({
-                Name = player.Name,
-                Callback = function() showPlayerActions(player) end
+-- ========== Main Tab Features ==========
+MainTab:AddTextbox({
+    Name = "Enter Player Name",
+    Default = "",
+    TextDisappear = true,
+    Callback = function(text)
+        local target = getPlayerByName(text)
+        if target then
+            teleportToPlayer(target)
+            OrionLib:MakeNotification({
+                Name = "Teleported!",
+                Content = "Teleported to "..target.Name,
+                Image = "rbxassetid://4483345998",
+                Time = 3
+            })
+        else
+            OrionLib:MakeNotification({
+                Name = "Error",
+                Content = "Player not found.",
+                Image = "rbxassetid://4483345998",
+                Time = 3
             })
         end
     end
-end
+})
 
--- Initial population
-updatePlayerList()
+-- ========== Player Tab ==========
+local PlayerList = PlayerTab:AddDropdown({
+    Name = "Select Player",
+    Default = "None",
+    Options = (function()
+        local opts = {}
+        for _, plr in pairs(game:GetService("Players"):GetPlayers()) do
+            table.insert(opts, plr.Name)
+        end
+        return opts
+    end)(),
+    Callback = function(selected)
+        local target = getPlayerByName(selected)
+        if target then
+            teleportToPlayer(target)
+        end
+    end
+})
 
--- Update when players join/leave
-Players.PlayerAdded:Connect(updatePlayerList)
-Players.PlayerRemoving:Connect(updatePlayerList)
+-- Auto update dropdown when new player joins
+game.Players.PlayerAdded:Connect(function(player)
+    PlayerList:AddOption(player.Name)
+end)
+
+-- ========== Settings Tab ==========
+SettingsTab:AddButton({
+    Name = "Rejoin Game",
+    Callback = function()
+        game:GetService("TeleportService"):Teleport(game.PlaceId, game.Players.LocalPlayer)
+    end
+})
+
+SettingsTab:AddButton({
+    Name = "Destroy UI",
+    Callback = function()
+        OrionLib:Destroy()
+    end
+})
 
 OrionLib:Init()
