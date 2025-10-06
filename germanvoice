@@ -1,135 +1,372 @@
--- ========== Orion Library Loader ==========
+--[[
+Universal Orion Teleporter
+Author: ChatGPT (adapted for universal exploit environments)
+Beschreibung: Robustes Loader-System für Orion + UI zum Teleportieren zu Spielern.
+Kopiere und füge dieses Skript in deinen Exploit ein.
+--]]
+
+-- ========== Konfiguration ==========
 local ORION_URL = "https://raw.githubusercontent.com/shlexware/Orion/main/source"
+local TELEPORT_OFFSET = Vector3.new(0, 3, 0) -- Abstand über Ziel-HRP
+local TELEPORT_KEY = Enum.KeyCode.T -- Taste: Teleportiere zum aktuell ausgewählten Spieler
+
+-- ========== Helpers: robustes HTTP + loader ==========
+local function try_call(fn)
+    local ok, res = pcall(fn)
+    if ok then return res end
+    return nil
+end
 
 local function detect_http_get()
-    if pcall(function() return game.HttpGet end) and type(game.HttpGet)=="function" then
-        return function(url) return game:HttpGet(url,true) end
+    -- syn.request
+    if type(syn) == "table" and type(syn.request) == "function" then
+        return function(url)
+            local r = try_call(function() return syn.request({Url = url, Method = "GET"}) end)
+            if r and (r.Body or r.response) then return r.Body or r.response end
+            return nil
+        end
     end
-    if type(syn)=="table" and type(syn.request)=="function" then
-        return function(url) local ok,r=pcall(function() return syn.request({Url=url,Method="GET"}) end) if ok and r then return r.Body end end
+
+    -- exploit http_request or http.request (various exploits)
+    if type(http) == "table" and type(http.request) == "function" then
+        return function(url)
+            local r = try_call(function() return http.request({Url = url, Method = "GET"}) end)
+            if r and r.Body then return r.Body end
+            return nil
+        end
     end
-    local http = http
-    if type(http)=="table" and type(http.request)=="function" then
-        return function(url) local ok,r=pcall(function() return http.request({Url=url,Method="GET"}) end) if ok and r then return r.Body end end
+
+    if type(httprequest) == "function" then
+        return function(url)
+            local r = try_call(function() return httprequest({Url = url, Method = "GET"}) end)
+            if r and r.Body then return r.Body end
+            return nil
+        end
     end
-    local HttpService = game:GetService("HttpService")
-    if HttpService and type(HttpService.GetAsync)=="function" then
-        return function(url) local ok,res=pcall(function() return HttpService:GetAsync(url) end) if ok then return res end end
+
+    -- Krnl.HttpGet or Krnl.HttpGet
+    if type(KRNL) == "table" and type(KRNL.HttpGet) == "function" then
+        return function(url)
+            return try_call(function() return KRNL.HttpGet(url) end)
+        end
     end
+    if type(Krnl) == "table" and type(Krnl.HttpGet) == "function" then
+        return function(url)
+            return try_call(function() return Krnl.HttpGet(url) end)
+        end
+    end
+
+    -- game:HttpGet (some exploits provide it)
+    if pcall(function() return game.HttpGet end) and type(game.HttpGet) == "function" then
+        return function(url)
+            return try_call(function() return game:HttpGet(url, true) end)
+        end
+    end
+
+    -- Roblox HttpService (last resort; requires game HTTP enabled)
+    local HttpService = try_call(function() return game:GetService("HttpService") end)
+    if HttpService and type(HttpService.GetAsync) == "function" then
+        return function(url)
+            return try_call(function() return HttpService:GetAsync(url) end)
+        end
+    end
+
     return nil
 end
 
 local http_get = detect_http_get()
-local loader = loadstring or (syn and syn.loadstring) or (KRNL and KRNL.loadstring) or (Fluxus and Fluxus.loadstring)
-local OrionLib = nil
 
-if loader and http_get then
-    pcall(function()
-        local src = http_get(ORION_URL)
-        if type(src)=="string" and #src > 50 then
-            local chunk = loader(src)
-            if type(chunk)=="function" then
-                local ok, lib = pcall(chunk)
-                if ok and type(lib)=="table" then
-                    OrionLib = lib
-                end
-            end
+local function detect_loader()
+    if type(loadstring) == "function" then return loadstring end
+    if type(load) == "function" then return load end
+    if type(syn) == "table" and type(syn.loadstring) == "function" then return syn.loadstring end
+    if type(KRNL) == "table" and type(KRNL.loadstring) == "function" then return KRNL.loadstring end
+    if type(Fluxus) == "table" and type(Fluxus.loadstring) == "function" then return Fluxus.loadstring end
+    return nil
+end
+
+local loader = detect_loader()
+
+if not http_get then
+    warn("[UniversalTeleporter] Kein HTTP-Request gefunden. Bitte aktiviere HTTP oder nutze einen anderen Exploit.")
+    return
+end
+if not loader then
+    warn("[UniversalTeleporter] Kein loader (loadstring/load) vorhanden. Dein Exploit unterstützt kein dynamisches Laden.")
+    return
+end
+
+-- ========== Lade Orion ==========
+local OrionLib = nil
+local ok, err = pcall(function()
+    local src = http_get(ORION_URL)
+    if not src or type(src) ~= "string" or #src < 50 then
+        error("Orion source leer oder ungültig.")
+    end
+    local chunk = loader(src)
+    if type(chunk) ~= "function" and type(chunk) ~= "thread" then
+        error("Loadstring gab keinen ausführbaren Chunk zurück.")
+    end
+    local success, lib = pcall(function()
+        -- loader can return function or a chunk requiring call
+        if type(chunk) == "function" then
+            return chunk()
+        else
+            return chunk
         end
     end)
-end
+    if not success or type(lib) ~= "table" then
+        error("Orion initialisierung fehlgeschlagen.")
+    end
+    OrionLib = lib
+end)
 
 if not OrionLib then
-    return warn("Failed to load Orion library.")
+    warn("[UniversalTeleporter] Failed to load Orion library:", err or "unknown")
+    return
 end
 
--- ========== Create UI ==========
-local Window = OrionLib:MakeWindow({Name = "Universal Player Teleporter", HidePremium = false, SaveConfig = true, ConfigFolder = "UniversalTP"})
+-- ========== Utility Funktionen ==========
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
 
--- Tabs
-local MainTab = Window:MakeTab({Name = "Main", Icon = "rbxassetid://4483345998", PremiumOnly = false})
-local PlayerTab = Window:MakeTab({Name = "Players", Icon = "rbxassetid://6023426915", PremiumOnly = false})
-local SettingsTab = Window:MakeTab({Name = "Settings", Icon = "rbxassetid://4483345998", PremiumOnly = false})
+local function find_players_matching(sub)
+    sub = tostring(sub or ""):lower()
+    local matches = {}
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            if p.Name:lower():find(sub, 1, true) or (p.DisplayName and p.DisplayName:lower():find(sub, 1, true)) then
+                table.insert(matches, p)
+            end
+        end
+    end
+    return matches
+end
 
--- ========== Utility Functions ==========
-local function getPlayerByName(name)
-    for _, plr in pairs(game:GetService("Players"):GetPlayers()) do
-        if plr.Name:lower():match(name:lower()) then
-            return plr
+local function get_player_by_name_exact(name)
+    for _, p in pairs(Players:GetPlayers()) do
+        if p.Name == name or (p.DisplayName and p.DisplayName == name) then
+            return p
         end
     end
     return nil
 end
 
-local function teleportToPlayer(target)
-    local character = game.Players.LocalPlayer.Character
-    if character and target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-        character:MoveTo(target.Character.HumanoidRootPart.Position + Vector3.new(0,3,0))
+local function teleport_to_player(target, offset)
+    offset = offset or TELEPORT_OFFSET
+    if not target or not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
+        OrionLib:MakeNotification({Name = "Teleport Fehler", Content = "Ziel-Charakter nicht verfügbar.", Image = "rbxassetid://4483345998", Time = 3})
+        return false
+    end
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        OrionLib:MakeNotification({Name = "Teleport Fehler", Content = "Dein Charakter ist nicht verfügbar.", Image = "rbxassetid://4483345998", Time = 3})
+        return false
+    end
+
+    local success, err = pcall(function()
+        LocalPlayer.Character:MoveTo(target.Character.HumanoidRootPart.Position + offset)
+    end)
+    if success then
+        OrionLib:MakeNotification({Name = "Teleported", Content = "Zu "..tostring(target.Name).." teleportiert.", Image = "rbxassetid://4483345998", Time = 3})
+        return true
+    else
+        OrionLib:MakeNotification({Name = "Teleport Fehler", Content = "Fehler: "..tostring(err), Image = "rbxassetid://4483345998", Time = 3})
+        return false
     end
 end
 
--- ========== Main Tab Features ==========
-MainTab:AddTextbox({
-    Name = "Enter Player Name",
+-- ========== UI Setup (Orion) ==========
+local Window = OrionLib:MakeWindow({
+    Name = "Universal Teleporter",
+    HidePremium = false,
+    SaveConfig = true,
+    ConfigFolder = "UniversalTeleporterConfig"
+})
+
+local mainTab = Window:MakeTab({Name = "Teleporter", Icon = "rbxassetid://4483345998", PremiumOnly = false})
+local playersTab = Window:MakeTab({Name = "Spieler", Icon = "rbxassetid://6023426915", PremiumOnly = false})
+local settingsTab = Window:MakeTab({Name = "Einstellungen", Icon = "rbxassetid://4483345998", PremiumOnly = false})
+
+-- ========== Main Tab ==========
+local selectedPlayerName = nil
+local selectedPlayerObj = nil
+local lastSearchText = ""
+
+mainTab:AddLabel({Name = "Einfach: Spielername eingeben und Enter drücken"})
+
+mainTab:AddTextbox({
+    Name = "Spieler suchen (Teilname)",
     Default = "",
-    TextDisappear = true,
+    Placeholder = "z.B. Max, oder DisplayName",
+    TextDisappear = false,
     Callback = function(text)
-        local target = getPlayerByName(text)
-        if target then
-            teleportToPlayer(target)
-            OrionLib:MakeNotification({
-                Name = "Teleported!",
-                Content = "Teleported to "..target.Name,
-                Image = "rbxassetid://4483345998",
-                Time = 3
-            })
+        lastSearchText = text or ""
+        -- Suche und wähle erstes Ergebnis
+        local matches = find_players_matching(lastSearchText)
+        if #matches >= 1 then
+            selectedPlayerObj = matches[1]
+            selectedPlayerName = selectedPlayerObj.Name
+            -- update dropdown in playersTab if needed
+            OrionLib:MakeNotification({Name = "Spieler gefunden", Content = "Ausgewählt: "..selectedPlayerName, Image = "rbxassetid://4483345998", Time = 2})
         else
-            OrionLib:MakeNotification({
-                Name = "Error",
-                Content = "Player not found.",
-                Image = "rbxassetid://4483345998",
-                Time = 3
-            })
+            selectedPlayerObj = nil
+            selectedPlayerName = nil
+            OrionLib:MakeNotification({Name = "Kein Treffer", Content = "Kein Spieler gefunden.", Image = "rbxassetid://4483345998", Time = 2})
         end
     end
 })
 
--- ========== Player Tab ==========
-local PlayerList = PlayerTab:AddDropdown({
-    Name = "Select Player",
+mainTab:AddButton({
+    Name = "Teleportiere zu ausgewähltem Spieler",
+    Callback = function()
+        if selectedPlayerObj then
+            teleport_to_player(selectedPlayerObj)
+        else
+            OrionLib:MakeNotification({Name = "Fehler", Content = "Kein Spieler ausgewählt. Suche zuerst.", Image = "rbxassetid://4483345998", Time = 3})
+        end
+    end
+})
+
+mainTab:AddButton({
+    Name = "Teleportiere zu exaktem Namen (Textbox unten)",
+    Callback = function()
+        -- nutzt exakte Namens-Eingabe im InputDialog
+        OrionLib:MakeNotification({Name = "Info", Content = "Gib Namen im Prompt ein.", Image = "rbxassetid://4483345998", Time = 2})
+        local name = OrionLib:MakePrompt({
+            Name = "Exakter Name",
+            Default = "",
+            Text = "Gib den exakten Player.Name oder DisplayName ein"
+        })
+        if name and #name > 0 then
+            local p = get_player_by_name_exact(name)
+            if p then
+                teleport_to_player(p)
+            else
+                OrionLib:MakeNotification({Name = "Nicht gefunden", Content = "Kein Spieler mit diesem exakten Namen gefunden.", Image = "rbxassetid://4483345998", Time = 3})
+            end
+        end
+    end
+})
+
+-- ========== Spieler Tab (Live-Liste + Dropdown) ==========
+local function build_player_options()
+    local opts = {}
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            table.insert(opts, p.Name)
+        end
+    end
+    if #opts == 0 then table.insert(opts, "Keine anderen Spieler") end
+    return opts
+end
+
+local playerDropdown = playersTab:AddDropdown({
+    Name = "Wähle Spieler",
     Default = "None",
-    Options = (function()
-        local opts = {}
-        for _, plr in pairs(game:GetService("Players"):GetPlayers()) do
-            table.insert(opts, plr.Name)
-        end
-        return opts
-    end)(),
+    Options = build_player_options(),
     Callback = function(selected)
-        local target = getPlayerByName(selected)
-        if target then
-            teleportToPlayer(target)
+        if selected and selected ~= "None" and selected ~= "Keine anderen Spieler" then
+            local p = get_player_by_name_exact(selected)
+            if p then
+                selectedPlayerObj = p
+                selectedPlayerName = p.Name
+                OrionLib:MakeNotification({Name = "Ausgewählt", Content = "Ausgewählt: "..p.Name, Image = "rbxassetid://4483345998", Time = 2})
+            end
         end
     end
 })
 
--- Auto update dropdown when new player joins
-game.Players.PlayerAdded:Connect(function(player)
-    PlayerList:AddOption(player.Name)
+playersTab:AddButton({
+    Name = "Teleportiere zum Dropdown-Spieler",
+    Callback = function()
+        if selectedPlayerObj then
+            teleport_to_player(selectedPlayerObj)
+        else
+            OrionLib:MakeNotification({Name = "Fehler", Content = "Kein Spieler ausgewählt.", Image = "rbxassetid://4483345998", Time = 3})
+        end
+    end
+})
+
+playersTab:AddButton({
+    Name = "Aktualisiere Spieler-Liste",
+    Callback = function()
+        local newOpts = build_player_options()
+        playerDropdown:RefreshOptions(newOpts)
+        OrionLib:MakeNotification({Name = "Liste aktualisiert", Content = "Spieler-Liste wurde aktualisiert.", Image = "rbxassetid://4483345998", Time = 2})
+    end
+})
+
+-- update dropdown automatically on join/leave
+Players.PlayerAdded:Connect(function(p)
+    task.defer(function()
+        local opts = build_player_options()
+        playerDropdown:RefreshOptions(opts)
+    end)
+end)
+Players.PlayerRemoving:Connect(function(p)
+    task.defer(function()
+        local opts = build_player_options()
+        playerDropdown:RefreshOptions(opts)
+        if selectedPlayerObj == p then
+            selectedPlayerObj = nil
+            selectedPlayerName = nil
+        end
+    end)
 end)
 
--- ========== Settings Tab ==========
-SettingsTab:AddButton({
-    Name = "Rejoin Game",
-    Callback = function()
-        game:GetService("TeleportService"):Teleport(game.PlaceId, game.Players.LocalPlayer)
+-- ========== Einstellungen Tab ==========
+local offsetY = TELEPORT_OFFSET.Y
+settingsTab:AddSlider({
+    Name = "Teleport Y-Offset",
+    Min = 0,
+    Max = 20,
+    Default = offsetY,
+    Float = 1,
+    Callback = function(value)
+        TELEPORT_OFFSET = Vector3.new(0, tonumber(value) or 3, 0)
     end
 })
 
-SettingsTab:AddButton({
-    Name = "Destroy UI",
+settingsTab:AddButton({
+    Name = "UI Zerstören",
     Callback = function()
         OrionLib:Destroy()
     end
 })
 
+settingsTab:AddButton({
+    Name = "Spiel neu betreten",
+    Callback = function()
+        pcall(function()
+            local ts = game:GetService("TeleportService")
+            ts:Teleport(game.PlaceId, LocalPlayer)
+        end)
+    end
+})
+
+settingsTab:AddBind({
+    Name = "Keybind: Teleport zu Auswahl",
+    Default = TELEPORT_KEY,
+    Hold = false,
+    Callback = function(key)
+        TELEPORT_KEY = key
+        OrionLib:MakeNotification({Name = "Keybind gesetzt", Content = "Teleport-Taste ist jetzt: "..tostring(key.Value), Image = "rbxassetid://4483345998", Time = 2})
+    end
+})
+
+-- ========== Tastatur-Hook (Hotkey für Teleport) ==========
+local UIS = game:GetService("UserInputService")
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == TELEPORT_KEY then
+        if selectedPlayerObj then
+            teleport_to_player(selectedPlayerObj)
+        else
+            OrionLib:MakeNotification({Name = "Fehler", Content = "Kein Spieler ausgewählt.", Image = "rbxassetid://4483345998", Time = 2})
+        end
+    end
+end)
+
+-- ========== Init ==========
 OrionLib:Init()
+OrionLib:MakeNotification({Name = "Ready", Content = "Universal Teleporter bereit.", Image = "rbxassetid://4483345998", Time = 3})
