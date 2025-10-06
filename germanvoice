@@ -62,12 +62,16 @@ local PlayerTab = Window:MakeTab({
 })
 
 -- ========== Helper Functions ==========
-local function isValidCharacter(player)
-    return player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+local function getPlayerRoot(player)
+    if player and player.Character then
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then return hrp end
+    end
+    return nil
 end
 
 local function freezePlayer(player)
-    if not isValidCharacter(player) then return end
+    if not player.Character then return end
     for _, part in ipairs(player.Character:GetChildren()) do
         if part:IsA("BasePart") then
             part.Anchored = true
@@ -76,7 +80,7 @@ local function freezePlayer(player)
 end
 
 local function ragdollPlayer(player)
-    if not isValidCharacter(player) then return end
+    if not player.Character then return end
     local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
     if humanoid then
         humanoid.PlatformStand = true
@@ -89,11 +93,10 @@ local function ragdollPlayer(player)
 end
 
 local function bringPlayer(player)
-    if not isValidCharacter(player) or not isValidCharacter(LocalPlayer) then return end
-    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-    local myHrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local hrp = getPlayerRoot(player)
+    local myHrp = getPlayerRoot(LocalPlayer)
     if hrp and myHrp then
-        hrp.CFrame = myHrp.CFrame + Vector3.new(0,5,0)
+        hrp.CFrame = myHrp.CFrame + Vector3.new(0, 5, 0)
     end
 end
 
@@ -137,10 +140,10 @@ function updatePlayerList()
     end
 end
 
--- Initial list
+-- Initial population
 updatePlayerList()
 
--- Update list when players join/leave
+-- Update when players join/leave
 Players.PlayerAdded:Connect(updatePlayerList)
 Players.PlayerRemoving:Connect(updatePlayerList)
 
