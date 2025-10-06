@@ -1,45 +1,39 @@
--- ========== Utility / Loader ==========
+-- ========== Orion Loader ==========
 local ORION_URL = "https://raw.githubusercontent.com/shlexware/Orion/main/source"
 
-local function detect_http_get()
-    if pcall(function() return game.HttpGet end) and type(game.HttpGet)=="function" then
-        return function(url) return game:HttpGet(url,true) end
+local function getHttpGet()
+    if pcall(function() return game.HttpGet end) then
+        return function(url) return game:HttpGet(url, true) end
     end
-    if type(syn)=="table" and type(syn.request)=="function" then
+    if syn and syn.request then
         return function(url)
-            local ok,r=pcall(function() return syn.request({Url=url,Method="GET"}) end)
-            if ok and r then return r.Body end
-        end
-    end
-    local http = http
-    if type(http)=="table" and type(http.request)=="function" then
-        return function(url)
-            local ok,r=pcall(function() return http.request({Url=url,Method="GET"}) end)
-            if ok and r then return r.Body end
+            local ok, res = pcall(function()
+                return syn.request({Url = url, Method = "GET"})
+            end)
+            if ok and res then return res.Body end
         end
     end
     local HttpService = game:GetService("HttpService")
-    if HttpService and type(HttpService.GetAsync)=="function" then
+    if HttpService and HttpService.GetAsync then
         return function(url)
-            local ok,res=pcall(function() return HttpService:GetAsync(url) end)
+            local ok, res = pcall(function() return HttpService:GetAsync(url) end)
             if ok then return res end
         end
     end
-    return nil
 end
 
-local http_get = detect_http_get()
-local loader = loadstring or (syn and syn.loadstring) or (KRNL and KRNL.loadstring) or (Fluxus and Fluxus.loadstring)
+local http_get = getHttpGet()
+local loader = loadstring or (syn and syn.loadstring) or (KRNL and KRNL.loadstring)
 local OrionLib = nil
 
 if loader and http_get then
     pcall(function()
         local src = http_get(ORION_URL)
-        if type(src)=="string" and #src>50 then
+        if type(src) == "string" and #src > 50 then
             local chunk = loader(src)
-            if type(chunk)=="function" then
+            if type(chunk) == "function" then
                 local ok, lib = pcall(chunk)
-                if ok and type(lib)=="table" then
+                if ok and type(lib) == "table" then
                     OrionLib = lib
                 end
             end
@@ -49,15 +43,16 @@ end
 
 if not OrionLib then return end
 
--- ========== Main GUI ==========
+-- ========== Services ==========
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
+-- ========== GUI ==========
 local Window = OrionLib:MakeWindow({
     Name = "Player Utilities",
     HidePremium = false,
     SaveConfig = true,
-    ConfigFolder = "MyOrionConfig"
+    ConfigFolder = "PlayerUtilities"
 })
 
 local PlayerTab = Window:MakeTab({
@@ -66,63 +61,62 @@ local PlayerTab = Window:MakeTab({
     PremiumOnly = false
 })
 
--- Function to create the buttons for player actions
-local function createPlayerButtons(player)
-    local options = {"Freeze", "Ragdoll", "Bring to Me"}
-    for _, action in ipairs(options) do
-        PlayerTab:AddButton({
-            Name = action.." "..player.Name,
-            Callback = function()
-                if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return end
-                local character = player.Character
-                local hrp = character:FindFirstChild("HumanoidRootPart")
-                local humanoid = character:FindFirstChildOfClass("Humanoid")
-                
-                if action == "Freeze" then
-                    -- Anchor all parts
-                    for _, part in ipairs(character:GetChildren()) do
-                        if part:IsA("BasePart") then
-                            part.Anchored = true
-                        end
-                    end
-                elseif action == "Ragdoll" then
-                    if humanoid then
-                        humanoid.PlatformStand = true
-                        for _, part in ipairs(character:GetChildren()) do
-                            if part:IsA("BasePart") then
-                                part.Anchored = false
-                            end
-                        end
-                    end
-                elseif action == "Bring to Me" then
-                    if hrp then
-                        hrp.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(0,5,0)
-                    end
-                end
-            end
-        })
+-- ========== Player Actions ==========
+local function freezePlayer(player)
+    if not player.Character then return end
+    for _, part in ipairs(player.Character:GetChildren()) do
+        if part:IsA("BasePart") then
+            part.Anchored = true
+        end
     end
 end
 
--- Dropdown to select player
+local function ragdollPlayer(player)
+    if not player.Character then return end
+    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.PlatformStand = true
+        for _, part in ipairs(player.Character:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.Anchored = false
+            end
+        end
+    end
+end
+
+local function bringPlayer(player)
+    if not player.Character or not LocalPlayer.Character then return end
+    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+    local myHrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if hrp and myHrp then
+        hrp.CFrame = myHrp.CFrame + Vector3.new(0,5,0)
+    end
+end
+
+-- ========== Player List Buttons ==========
 local function updatePlayerList()
-    PlayerTab:Clear() -- remove old buttons
+    PlayerTab:Clear()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             PlayerTab:AddButton({
                 Name = player.Name,
                 Callback = function()
-                    createPlayerButtons(player)
+                    -- Remove previous action buttons
+                    PlayerTab:Clear()
+                    -- Add actions for selected player
+                    PlayerTab:AddButton({Name = "Freeze "..player.Name, Callback = function() freezePlayer(player) end})
+                    PlayerTab:AddButton({Name = "Ragdoll "..player.Name, Callback = function() ragdollPlayer(player) end})
+                    PlayerTab:AddButton({Name = "Bring to Me "..player.Name, Callback = function() bringPlayer(player) end})
                 end
             })
         end
     end
 end
 
--- Initial population
+-- Initial list
 updatePlayerList()
 
--- Update whenever a player joins or leaves
+-- Update list when players join/leave
 Players.PlayerAdded:Connect(updatePlayerList)
 Players.PlayerRemoving:Connect(updatePlayerList)
 
