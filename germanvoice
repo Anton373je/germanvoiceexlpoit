@@ -1,38 +1,37 @@
--- Roblox Universal Exploit Script (Orion UI)
--- Features: Fly, Fly Speed, Noclip, Teleport to player, Bring player, Click-to-Ragdoll, Emotes, Freeze player, Nametags, Copy Outfit, Change Character Size, Movable GUI
--- Notes: Some actions require server trust and may not work in secure games. Run with an executor (Synapse, KRNL, Fluxus, etc.). Loader tries multiple methods to fetch Orion.
+-- ========== Utility / Loader ==========
+local ORION_URL = "https://raw.githubusercontent.com/shlexware/Orion/main/source"
 
--- ======== CONFIG / HELPERS ========
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
-local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
-
--- Robust Orion loader (tries multiple http/loadstring implementations)
-local OrionLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/shlexware/Orion/main/source"))()
+local function detect_http_get()
     if pcall(function() return game.HttpGet end) and type(game.HttpGet)=="function" then
         return function(url) return game:HttpGet(url,true) end
     end
     if type(syn)=="table" and type(syn.request)=="function" then
-        return function(url) local ok,r=pcall(function() return syn.request({Url=url,Method="GET"}) end) if ok and r then return r.Body end end
+        return function(url)
+            local ok,r=pcall(function() return syn.request({Url=url,Method="GET"}) end)
+            if ok and r then return r.Body end
+        end
     end
     local http = http
     if type(http)=="table" and type(http.request)=="function" then
-        return function(url) local ok,r=pcall(function() return http.request({Url=url,Method="GET"}) end) if ok and r then return r.Body end end
+        return function(url)
+            local ok,r=pcall(function() return http.request({Url=url,Method="GET"}) end)
+            if ok and r then return r.Body end
+        end
     end
     local HttpService = game:GetService("HttpService")
     if HttpService and type(HttpService.GetAsync)=="function" then
-        return function(url) local ok,res=pcall(function() return HttpService:GetAsync(url) end) if ok then return res end end
+        return function(url)
+            local ok,res=pcall(function() return HttpService:GetAsync(url) end)
+            if ok then return res end
+        end
     end
     return nil
 end
+
 local http_get = detect_http_get()
 local loader = loadstring or (syn and syn.loadstring) or (KRNL and KRNL.loadstring) or (Fluxus and Fluxus.loadstring)
-
 local OrionLib = nil
+
 if loader and http_get then
     pcall(function()
         local src = http_get(ORION_URL)
@@ -40,476 +39,91 @@ if loader and http_get then
             local chunk = loader(src)
             if type(chunk)=="function" then
                 local ok, lib = pcall(chunk)
-                if ok and type(lib)=="table" then OrionLib = lib end
-            end
-        end
-    end)
-end
-
-if not OrionLib then
-    warn("Orion not found. Please load Orion library first for the full GUI. The script will still create a minimal UI.")
-end
-
--- Utility: find player by name (case-insensitive partial)
-local function findPlayer(query)
-    if not query or query == "" then return nil end
-    query = query:lower()
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p.Name:lower():find(query, 1, true) or (p.DisplayName and p.DisplayName:lower():find(query,1,true)) then
-            return p
-        end
-    end
-    return nil
-end
-
-local function safecall(func, ...)
-    local ok, err = pcall(func, ...)
-    if not ok then warn(err) end
-    return ok, err
-end
-
--- ======== FEATURE IMPLEMENTATIONS ========
--- 1) Fly
-local flyEnabled = false
-local flySpeed = 1
-
-local function startFly()
-    local character = LocalPlayer.Character
-    if not character then return end
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not hrp or not humanoid then return end
-    flyEnabled = true
-    humanoid.PlatformStand = true
-    local connection
-    connection = RunService.RenderStepped:Connect(function()
-        if not flyEnabled then
-            connection:Disconnect()
-            if humanoid and humanoid.Parent then
-                humanoid.PlatformStand = false
-            end
-            return
-        end
-        local cam = workspace.CurrentCamera
-        local forward = cam.CFrame.LookVector
-        local right = cam.CFrame.RightVector
-        local up = Vector3.new(0,1,0)
-        local moveVec = Vector3.new(0,0,0)
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVec = moveVec + forward end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVec = moveVec - forward end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVec = moveVec - right end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVec = moveVec + right end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveVec = moveVec + up end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then moveVec = moveVec - up end
-        if moveVec.Magnitude > 0 then
-            moveVec = moveVec.Unit
-        else
-            moveVec = Vector3.new(0,0,0)
-        end
-        local targetVel = moveVec * (flySpeed * 50)
-        hrp.Velocity = targetVel
-    end)
-end
-
-local function stopFly()
-    flyEnabled = false
-    local character = LocalPlayer.Character
-    if character then
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            safecall(function() humanoid.PlatformStand = false end)
-        end
-    end
-end
-
--- 2) Noclip (local)
-local noclipEnabled = false
-local noclipConn
-local function startNoclip()
-    noclipEnabled = true
-    noclipConn = RunService.Stepped:Connect(function()
-        local c = LocalPlayer.Character
-        if c then
-            for _, part in ipairs(c:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
+                if ok and type(lib)=="table" then
+                    OrionLib = lib
                 end
             end
         end
     end)
 end
-local function stopNoclip()
-    noclipEnabled = false
-    if noclipConn then noclipConn:Disconnect(); noclipConn = nil end
-    local c = LocalPlayer.Character
-    if c then
-        for _, part in ipairs(c:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
-            end
-        end
-    end
-end
 
--- 3) Teleport to player and Bring player
-local function teleportToPlayer(targetPlayer)
-    if not targetPlayer or not targetPlayer.Character then return false, "No such player or no character" end
-    local targetHRP = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local me = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if targetHRP and me then
-        safecall(function()
-            me.CFrame = targetHRP.CFrame * CFrame.new(0,3,0)
-        end)
-        return true
-    end
-    return false, "Could not find HRP"
-end
+if not OrionLib then return end
 
-local function bringPlayer(targetPlayer)
-    if not targetPlayer or not targetPlayer.Character then return false, "No such player or no character" end
-    local targetHRP = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if targetHRP then
-        safecall(function()
-            local meHRP = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))
-            if meHRP then
-                targetHRP.CFrame = meHRP.CFrame * CFrame.new(0,0,-5)
-            else
-                targetHRP.CFrame = workspace.CurrentCamera.CFrame * CFrame.new(0,0,-5)
-            end
-        end)
-        return true
-    end
-    return false, "Could not find target HRP"
-end
+-- ========== Main GUI ==========
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
 
--- 4) Click-to-Ragdoll (best-effort client-side)
-local clickRagdollEnabled = false
-local function ragdollCharacter(character)
-    if not character then return end
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not hrp then return end
-    safecall(function()
-        humanoid.PlatformStand = true
-        hrp.Velocity = Vector3.new(math.random(-30,30), 20, math.random(-30,30))
-        delay(2, function()
-            if humanoid and humanoid.Parent then
-                humanoid.PlatformStand = false
-            end
-        end)
-    end)
-end
+local Window = OrionLib:MakeWindow({
+    Name = "Player Utilities",
+    HidePremium = false,
+    SaveConfig = true,
+    ConfigFolder = "MyOrionConfig"
+})
 
-local mouseClickConn
-local function enableClickRagdoll()
-    clickRagdollEnabled = true
-    mouseClickConn = Mouse.Button1Down:Connect(function()
-        if not clickRagdollEnabled then return end
-        local target = Mouse.Target
-        if target then
-            local root = target:FindFirstAncestorWhichIsA("Model")
-            if root then
-                local pl = Players:GetPlayerFromCharacter(root)
-                if pl and pl.Character then
-                    ragdollCharacter(pl.Character)
-                end
-            end
-        end
-    end)
-end
-local function disableClickRagdoll()
-    clickRagdollEnabled = false
-    if mouseClickConn then mouseClickConn:Disconnect(); mouseClickConn = nil end
-end
+local PlayerTab = Window:MakeTab({
+    Name = "Players",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
 
--- 5) Emote system (sit, lay, dance)
-local function doEmote(emote)
-    local char = LocalPlayer.Character
-    if not char then return end
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
-    if emote == "sit" then
-        humanoid.Sit = true
-    elseif emote == "lay" then
-        humanoid.PlatformStand = true
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.CFrame = hrp.CFrame * CFrame.Angles(math.rad(90),0,0)
-        end
-        delay(5, function() if humanoid and humanoid.Parent then humanoid.PlatformStand = false end end)
-    elseif emote == "dance" then
-        local danceId = "http://www.roblox.com/asset/?id=180436334"
-        local anim = Instance.new("Animation")
-        anim.AnimationId = danceId
-        local track = humanoid:LoadAnimation(anim)
-        track:Play()
-        delay(6, function() track:Stop(); anim:Destroy() end)
-    end
-end
-
--- 6) Freeze player (local) via list
-local function freezePlayer(targetPlayer, freeze)
-    if not targetPlayer or not targetPlayer.Character then return false, "No such player/character" end
-    local hrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false, "No HRP" end
-    safecall(function()
-        hrp.Anchored = freeze
-    end)
-    return true
-end
-
--- 7) Nametags (client-side BillboardGui)
-local function createNametagFor(player)
-    if not player.Character then return end
-    local head = player.Character:FindFirstChild("Head")
-    if not head then return end
-    local existing = head:FindFirstChild("__nametag")
-    if existing then existing:Destroy() end
-    local bill = Instance.new("BillboardGui")
-    bill.Name = "__nametag"
-    bill.Adornee = head
-    bill.AlwaysOnTop = true
-    bill.Size = UDim2.new(0,150,0,40)
-    bill.StudsOffset = Vector3.new(0,2.2,0)
-    bill.Parent = head
-    local txt = Instance.new("TextLabel", bill)
-    txt.Size = UDim2.new(1,0,1,0)
-    txt.BackgroundTransparency = 1
-    txt.TextScaled = true
-    txt.Font = Enum.Font.GothamBold
-    txt.Text = player.Name
-    txt.TextStrokeTransparency = 0.6
-end
-
-local function removeNametag(player)
-    if player.Character and player.Character:FindFirstChild("Head") then
-        local existing = player.Character.Head:FindFirstChild("__nametag")
-        if existing then existing:Destroy() end
-    end
-end
-
-local function refreshAllNametags()
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            if p.Character and p.Character:FindFirstChild("Head") then
-                createNametagFor(p)
-            end
-        end
-    end
-end
-
-Players.PlayerAdded:Connect(function(p)
-    p.CharacterAdded:Connect(function()
-        wait(0.5)
-        if p ~= LocalPlayer then createNametagFor(p) end
-    end)
-end)
-
-Players.PlayerRemoving:Connect(function(p)
-    removeNametag(p)
-end)
-
-for _, p in ipairs(Players:GetPlayers()) do
-    if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Head") then
-        createNametagFor(p)
-    end
-end
-
--- 8) Copy outfit from another player (client-side)
-local function copyOutfitFrom(player)
-    if not player or not player.Character then return false, "No player/character" end
-    local targetChar = player.Character
-    local myChar = LocalPlayer.Character
-    if not myChar then return false, "No local character" end
-    for _, item in ipairs(myChar:GetChildren()) do
-        if item:IsA("Accessory") or item:IsA("Hat") then
-            pcall(function() item:Destroy() end)
-        end
-    end
-    for _, acc in ipairs(targetChar:GetChildren()) do
-        if acc:IsA("Accessory") or acc:IsA("Hat") then
-            local clone = acc:Clone()
-            clone.Parent = myChar
-        end
-    end
-    local tc = targetChar:FindFirstChild("Body Colors")
-    if tc then
-        local bc = tc:Clone()
-        bc.Parent = myChar
-    end
-    return true
-end
-
--- 9) Change character size (scale factors)
-local function setCharacterScale(character, scale)
-    if not character then return false end
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return false end
-    local ok = false
-    local function trySet(name)
-        local obj = humanoid:FindFirstChild(name)
-        if obj and obj:IsA("NumberValue") then
-            obj.Value = scale
-            ok = true
-        end
-    end
-    trySet("BodyHeightScale")
-    trySet("BodyWidthScale")
-    trySet("BodyDepthScale")
-    trySet("HeadScale")
-    if not ok then
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.Size = hrp.Size * scale
-            ok = true
-        end
-    end
-    return ok
-end
-
--- ======== UI (Orion) ========
-local win
-if OrionLib then
-    win = OrionLib:MakeWindow({Name = "Universal | Orion", HidePremium = false, SaveConfig = true, IntroText = "Universal Exploit", ConfigFolder = "UniversalConfig"})
-
-    -- Make Orion window movable
-    local function makeMovable(gui)
-        local dragging
-        local dragInput
-        local dragStart
-        local startPos
-
-        local function update(input)
-            local delta = input.Position - dragStart
-            gui.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-
-        gui.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = true
-                dragStart = input.Position
-                startPos = gui.Position
-
-                input.Changed:Connect(function()
-                    if input.UserInputState == Enum.UserInputState.End then
-                        dragging = false
-                    end
-                end)
-            end
-        end)
-
-        gui.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement then
-                dragInput = input
-            end
-        end)
-
-        UserInputService.InputChanged:Connect(function(input)
-            if input == dragInput and dragging then
-                update(input)
-            end
-        end)
-    end
-
-    spawn(function()
-        wait(2)
-        local playerGui = LocalPlayer:WaitForChild("PlayerGui")
-        for _, g in ipairs(playerGui:GetChildren()) do
-            if g:IsA("ScreenGui") and g.Name:find("Orion") then
-                for _, f in ipairs(g:GetDescendants()) do
-                    if f:IsA("Frame") and f.Name == "Window" then
-                        makeMovable(f)
-                    end
-                end
-            end
-        end
-    end)
-
-    local movementTab = win:MakeTab({Name = "Movement", Icon = "rbxassetid://4483345998", PremiumOnly = false})
-    movementTab:AddToggle({Name = "Fly", Default = false, Callback = function(val) if val then startFly() else stopFly() end end})
-    movementTab:AddSlider({Name = "Fly Speed", Min = 0.5, Max = 5, Default = 1, Round = 2, Callback = function(v) flySpeed = v end})
-    movementTab:AddToggle({Name = "Noclip", Default = false, Callback = function(val) if val then startNoclip() else stopNoclip() end end})
-
-    local teleportTab = win:MakeTab({Name = "Teleport", Icon = "rbxassetid://4483345998", PremiumOnly = false})
-    teleportTab:AddDropdown({Name = "Select Player to Teleport To", Default = Players:GetPlayers()[1] and Players:GetPlayers()[1].Name or "", Options = (function() local t={} for _,p in ipairs(Players:GetPlayers()) do if p~=LocalPlayer then table.insert(t,p.Name) end end return t end)(), Callback = function(choice) local target = findPlayer(choice); if target then teleportToPlayer(target) end end})
-    teleportTab:AddDropdown({Name = "Select Player to Bring", Default = Players:GetPlayers()[1] and Players:GetPlayers()[1].Name or "", Options = (function() local t={} for _,p in ipairs(Players:GetPlayers()) do if p~=LocalPlayer then table.insert(t,p.Name) end end return t end)(), Callback = function(choice) local target = findPlayer(choice); if target then bringPlayer(target) end end})
-
-    local clickTab = win:MakeTab({Name = "Click Actions", Icon = "rbxassetid://4483345998", PremiumOnly = false})
-    clickTab:AddToggle({Name = "Enable Click Ragdoll", Default = false, Callback = function(val) if val then enableClickRagdoll() else disableClickRagdoll() end end})
-
-    local emoteTab = win:MakeTab({Name = "Emotes", Icon = "rbxassetid://4483345998", PremiumOnly = false})
-    emoteTab:AddButton({Name = "Sit", Callback = function() doEmote("sit") end})
-    emoteTab:AddButton({Name = "Lay", Callback = function() doEmote("lay") end})
-    emoteTab:AddButton({Name = "Dance", Callback = function() doEmote("dance") end})
-
-    local utilityTab = win:MakeTab({Name = "Utility", Icon = "rbxassetid://4483345998", PremiumOnly = false})
-    utilityTab:AddButton({Name = "Refresh Nametags", Callback = function() refreshAllNametags() end})
-    utilityTab:AddDropdown({Name = "Freeze Player", Default = nil, Options = (function() local t={} for _,p in ipairs(Players:GetPlayers()) do if p~=LocalPlayer then table.insert(t,p.Name) end end return t end)(), Callback = function(choice) local target = findPlayer(choice); if target then freezePlayer(target, true) end end})
-    utilityTab:AddDropdown({Name = "Unfreeze Player", Default = nil, Options = (function() local t={} for _,p in ipairs(Players:GetPlayers()) do if p~=LocalPlayer then table.insert(t,p.Name) end end return t end)(), Callback = function(choice) local target = findPlayer(choice); if target then freezePlayer(target, false) end end})
-
-    local appearanceTab = win:MakeTab({Name = "Appearance", Icon = "rbxassetid://4483345998", PremiumOnly = false})
-    appearanceTab:AddSlider({Name = "Character Scale", Min = 0.5, Max = 2.0, Default = 1, Round = 2, Callback = function(val) if LocalPlayer.Character then setCharacterScale(LocalPlayer.Character, val) end end})
-
-    spawn(function()
-        while wait(10) do
-            pcall(function()
-                for _, tab in ipairs({teleportTab, utilityTab}) do
-                    for _, element in ipairs(tab.elements) do
-                        if element.Type == "Dropdown" then
-                            local opts = {}
-                            for _, p in ipairs(Players:GetPlayers()) do if p~=LocalPlayer then table.insert(opts, p.Name) end end
-                            element:Refresh(opts)
+-- Function to create the buttons for player actions
+local function createPlayerButtons(player)
+    local options = {"Freeze", "Ragdoll", "Bring to Me"}
+    for _, action in ipairs(options) do
+        PlayerTab:AddButton({
+            Name = action.." "..player.Name,
+            Callback = function()
+                if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return end
+                local character = player.Character
+                local hrp = character:FindFirstChild("HumanoidRootPart")
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                
+                if action == "Freeze" then
+                    -- Anchor all parts
+                    for _, part in ipairs(character:GetChildren()) do
+                        if part:IsA("BasePart") then
+                            part.Anchored = true
                         end
                     end
+                elseif action == "Ragdoll" then
+                    if humanoid then
+                        humanoid.PlatformStand = true
+                        for _, part in ipairs(character:GetChildren()) do
+                            if part:IsA("BasePart") then
+                                part.Anchored = false
+                            end
+                        end
+                    end
+                elseif action == "Bring to Me" then
+                    if hrp then
+                        hrp.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(0,5,0)
+                    end
                 end
-            end)
-        end
-    end)
-
-else
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "UniversalFallbackGUI"
-    screenGui.ResetOnSpawn = false
-    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0,300,0,100)
-    label.Position = UDim2.new(0,20,0,20)
-    label.Text = "Orion not found. Please load Orion to get the full GUI.\nBasic features still enabled via commands."
-    label.Parent = screenGui
-
-    -- Make fallback GUI movable
-    local dragging, dragStart, startPos
-    label.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            dragStart = input.Position
-            startPos = label.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then dragging = false end
-            end)
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local delta = input.Position - dragStart
-            label.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
+            end
+        })
+    end
 end
 
-LocalPlayer.CharacterRemoving:Connect(function()
-    stopFly()
-    stopNoclip()
-    disableClickRagdoll()
-end)
+-- Dropdown to select player
+local function updatePlayerList()
+    PlayerTab:Clear() -- remove old buttons
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            PlayerTab:AddButton({
+                Name = player.Name,
+                Callback = function()
+                    createPlayerButtons(player)
+                end
+            })
+        end
+    end
+end
 
-_G.Universal = {
-    TeleportTo = teleportToPlayer,
-    Bring = bringPlayer,
-    Freeze = freezePlayer,
-    CopyOutfit = copyOutfitFrom,
-    Ragdoll = ragdollCharacter,
-    SetScale = setCharacterScale,
-}
+-- Initial population
+updatePlayerList()
 
-print("Universal Orion script loaded. Use _G.Universal functions in console or the GUI.")
+-- Update whenever a player joins or leaves
+Players.PlayerAdded:Connect(updatePlayerList)
+Players.PlayerRemoving:Connect(updatePlayerList)
+
+OrionLib:Init()
