@@ -61,9 +61,13 @@ local PlayerTab = Window:MakeTab({
     PremiumOnly = false
 })
 
--- ========== Player Actions ==========
+-- ========== Helper Functions ==========
+local function isValidCharacter(player)
+    return player and player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+end
+
 local function freezePlayer(player)
-    if not player.Character then return end
+    if not isValidCharacter(player) then return end
     for _, part in ipairs(player.Character:GetChildren()) do
         if part:IsA("BasePart") then
             part.Anchored = true
@@ -72,7 +76,7 @@ local function freezePlayer(player)
 end
 
 local function ragdollPlayer(player)
-    if not player.Character then return end
+    if not isValidCharacter(player) then return end
     local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
     if humanoid then
         humanoid.PlatformStand = true
@@ -85,7 +89,7 @@ local function ragdollPlayer(player)
 end
 
 local function bringPlayer(player)
-    if not player.Character or not LocalPlayer.Character then return end
+    if not isValidCharacter(player) or not isValidCharacter(LocalPlayer) then return end
     local hrp = player.Character:FindFirstChild("HumanoidRootPart")
     local myHrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if hrp and myHrp then
@@ -93,21 +97,41 @@ local function bringPlayer(player)
     end
 end
 
--- ========== Player List Buttons ==========
-local function updatePlayerList()
+-- ========== GUI Buttons ==========
+local function showPlayerActions(player)
     PlayerTab:Clear()
+    PlayerTab:AddLabel({Name = "Selected: "..player.Name})
+
+    PlayerTab:AddButton({
+        Name = "Freeze "..player.Name,
+        Callback = function() freezePlayer(player) end
+    })
+
+    PlayerTab:AddButton({
+        Name = "Ragdoll "..player.Name,
+        Callback = function() ragdollPlayer(player) end
+    })
+
+    PlayerTab:AddButton({
+        Name = "Bring to Me "..player.Name,
+        Callback = function() bringPlayer(player) end
+    })
+
+    PlayerTab:AddButton({
+        Name = "Back to Player List",
+        Callback = function() updatePlayerList() end
+    })
+end
+
+-- ========== Player List ==========
+function updatePlayerList()
+    PlayerTab:Clear()
+    PlayerTab:AddLabel({Name = "Players in Server:"})
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             PlayerTab:AddButton({
                 Name = player.Name,
-                Callback = function()
-                    -- Remove previous action buttons
-                    PlayerTab:Clear()
-                    -- Add actions for selected player
-                    PlayerTab:AddButton({Name = "Freeze "..player.Name, Callback = function() freezePlayer(player) end})
-                    PlayerTab:AddButton({Name = "Ragdoll "..player.Name, Callback = function() ragdollPlayer(player) end})
-                    PlayerTab:AddButton({Name = "Bring to Me "..player.Name, Callback = function() bringPlayer(player) end})
-                end
+                Callback = function() showPlayerActions(player) end
             })
         end
     end
